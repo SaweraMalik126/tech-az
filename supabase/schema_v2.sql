@@ -669,7 +669,7 @@ FOR EACH ROW EXECUTE FUNCTION set_public_id('billing_records');
 
 -- Partitioned audit log
 CREATE TABLE IF NOT EXISTS audit_logs (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID NOT NULL DEFAULT uuid_generate_v4(),
   org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   actor_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
   action TEXT NOT NULL,
@@ -678,7 +678,8 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   diff JSONB,
   ip INET,
   ua TEXT,
-  created_at TIMESTAMPTZ NOT NULL
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (id, created_at)
 ) PARTITION BY RANGE (created_at);
 
 -- Create current month partition (example); in prod, rotate monthly via job
