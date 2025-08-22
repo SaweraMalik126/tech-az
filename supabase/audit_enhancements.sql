@@ -47,7 +47,18 @@ begin
     'anon'
   );
 
-  v_sess := coalesce(nullif(h_session_id,''), 'unknown');
+  -- Compute request id first
+  v_req := coalesce(nullif(h_request_id,'')::uuid, gen_random_uuid());
+
+  -- Derive session id from header or JWT or fallback to request id
+  v_sess := coalesce(
+    nullif(h_session_id,''),
+    nullif(jwt->>'session_id',''),
+    nullif(jwt->>'sid',''),
+    nullif(jwt->>'jti',''),
+    nullif(jwt->>'sub',''),
+    v_req::text
+  );
 
   v_ip := coalesce(
     nullif(h_real_ip,'')::inet,
@@ -58,7 +69,6 @@ begin
   );
 
   v_ua := coalesce(nullif(h_ua,''), 'unknown');
-  v_req := coalesce(nullif(h_request_id,'')::uuid, gen_random_uuid());
 
   return jsonb_build_object(
     'actor_user_id', v_actor::text,
