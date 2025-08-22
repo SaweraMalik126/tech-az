@@ -1,9 +1,10 @@
-import { supabase } from "../../supabase";
+import { createSupabaseForRequestAsync, auditEventForRequest } from "../../supabase";
 import { Context } from "hono";
 
 export async function studentProgressHandler(c: Context) {
   try {
     const id = c.req.param("id");
+    const { supabase } = await createSupabaseForRequestAsync(c);
     const { data: enrollments, error: enrollmentsError } = await supabase
       .from("enrollments")
       .select(`course_id, status`)
@@ -73,6 +74,7 @@ export async function studentProgressHandler(c: Context) {
       average_progress: averageProgress,
       courses: courseProgress,
     };
+    await auditEventForRequest(c, "view_student_progress", "public.user_progress", id, { course_count: totalCourses });
     return c.json({ success: true, data: progress });
   } catch (error) {
     console.error("Error in /api/students/:id/progress:", error);

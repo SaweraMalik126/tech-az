@@ -1,9 +1,10 @@
-import { supabase, type Student } from "../../supabase";
+import { createSupabaseForRequest, auditEventForRequest, type Student } from "../../supabase";
 import { Context } from "hono";
 
 export async function courseStudentsHandler(c: Context) {
   try {
     const courseId = parseInt(c.req.param("courseId"));
+    const { supabase } = createSupabaseForRequest(c);
     const { data: enrollments, error: enrollmentsError } = await supabase
       .from("enrollments")
       .select(`user_id, status, enrolled_at`)
@@ -66,6 +67,9 @@ export async function courseStudentsHandler(c: Context) {
       })
     );
     const validStudents = students.filter(Boolean) as Student[];
+    await auditEventForRequest(c, "view_course_students", "public.courses", String(courseId), {
+      count: validStudents.length,
+    });
     return c.json({
       success: true,
       data: validStudents,

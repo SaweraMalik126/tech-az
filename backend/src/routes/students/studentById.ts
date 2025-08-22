@@ -1,9 +1,10 @@
-import { supabase, type StudentCourse } from "../../supabase";
+import { createSupabaseForRequestAsync, auditEventForRequest, type StudentCourse } from "../../supabase";
 import { Context } from "hono";
 
 export async function studentByIdHandler(c: Context) {
   try {
     const id = c.req.param("id");
+    const { supabase } = await createSupabaseForRequestAsync(c);
     const { data: student, error: studentError } = await supabase
       .from("users")
       .select(
@@ -72,6 +73,7 @@ export async function studentByIdHandler(c: Context) {
       ...student,
       courses: courses.filter(Boolean) as StudentCourse[],
     };
+    await auditEventForRequest(c, "view_student", "public.users", id, { view: "profile" });
     return c.json({ success: true, data: studentWithCourses });
   } catch (error) {
     console.error("Error in /api/students/:id:", error);

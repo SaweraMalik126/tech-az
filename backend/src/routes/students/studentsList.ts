@@ -1,8 +1,9 @@
-import { supabase, type Student, type StudentCourse } from "../../supabase";
+import { createSupabaseForRequestAsync, auditEventForRequest, type Student, type StudentCourse } from "../../supabase";
 import { Context } from "hono";
 
 export async function studentsListHandler(c: Context) {
   try {
+    const { supabase } = await createSupabaseForRequestAsync(c);
     const { data: students, error: studentsError } = await supabase
       .from("users")
       .select(
@@ -87,6 +88,9 @@ export async function studentsListHandler(c: Context) {
         };
       })
     );
+    await auditEventForRequest(c, "list_students", "public.users", "all", {
+      count: studentsWithCourses.length,
+    });
     return c.json({
       success: true,
       data: studentsWithCourses,
