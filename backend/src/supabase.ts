@@ -205,6 +205,73 @@ export async function createSupabaseForRequestAsync(c: Context): Promise<{ supab
   return { supabase: userSupabase, supabaseAdmin: adminSupabase, ctx };
 }
 
+export async function createSupabaseForRequestWithActorAsync(
+  c: Context,
+  actorUserId: string,
+  institutionId?: string
+): Promise<{ supabase: SupabaseClient; supabaseAdmin: SupabaseClient; ctx: RequestAuditContext }> {
+  const base = buildRequestAuditContext(c);
+  const authHeader = c.req.header("authorization") || c.req.header("Authorization");
+
+  const tempAdmin = createClient(
+    SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY,
+    {
+      global: {
+        headers: { "x-request-id": base.requestId },
+      },
+      auth: { persistSession: false, detectSessionInUrl: false },
+    }
+  );
+
+  const resolvedRole = await resolveActorRole(tempAdmin, actorUserId, institutionId || base.institutionId);
+  const actorRole = resolvedRole || base.actorRole || "anon";
+  const sessionId = base.sessionId || deriveSessionId(authHeader);
+
+  const commonHeaders: Record<string, string> = {
+    "x-request-id": base.requestId,
+    "x-session-id": sessionId,
+    "x-actor-user-id": actorUserId,
+    "x-actor-role": actorRole,
+    "x-real-ip": base.ip || "",
+    "user-agent": base.userAgent || "",
+    ...(institutionId ? { "x-institution-id": institutionId } : base.institutionId ? { "x-institution-id": base.institutionId } : {}),
+  };
+
+  const userSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: {
+      headers: {
+        ...commonHeaders,
+        ...(authHeader ? { Authorization: authHeader } : {}),
+      },
+    },
+    auth: { persistSession: false, detectSessionInUrl: false },
+  });
+
+  const adminSupabase = createClient(
+    SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY,
+    {
+      global: {
+        headers: {
+          ...commonHeaders,
+          "x-service-role": "true",
+        },
+      },
+      auth: { persistSession: false, detectSessionInUrl: false },
+    }
+  );
+
+  const ctx: RequestAuditContext = {
+    ...base,
+    actorUserId,
+    actorRole,
+    sessionId,
+    institutionId: institutionId || base.institutionId,
+  };
+  return { supabase: userSupabase, supabaseAdmin: adminSupabase, ctx };
+}
+
 export async function auditEventForRequest(
   c: Context,
   action: string,
