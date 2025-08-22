@@ -1,9 +1,9 @@
-import { createSupabaseForRequest, auditEventForRequest, type Student, type StudentCourse } from "../../supabase";
+import { createSupabaseForRequestAsync, auditEventForRequest, type Student, type StudentCourse } from "../../supabase";
 import { Context } from "hono";
 
 export async function studentsListHandler(c: Context) {
   try {
-    const { supabase } = createSupabaseForRequest(c);
+    const { supabase } = await createSupabaseForRequestAsync(c);
     const { data: students, error: studentsError } = await supabase
       .from("users")
       .select(

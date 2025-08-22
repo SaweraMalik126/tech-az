@@ -2,6 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Context } from "hono";
 import { v4 as uuidv4 } from "uuid";
+import crypto from "node:crypto";
 
 const SUPABASE_URL = "https://zegmfhhxscrrjweuxleq.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -60,6 +61,7 @@ export interface RequestAuditContext {
   ip?: string;
   userAgent?: string;
   requestId: string;
+  institutionId?: string;
 }
 
 function base64UrlDecode(input: string): string {
@@ -90,6 +92,7 @@ export function buildRequestAuditContext(c: Context): RequestAuditContext {
   const userAgent = c.req.header("user-agent") || c.req.header("User-Agent") || undefined;
   const requestId = (c.req.header("x-request-id") || c.req.header("X-Request-Id") || uuidv4()).toString();
   const sessionId = (c.req.header("x-session-id") || c.req.header("X-Session-Id") || "").trim() || undefined;
+  const institutionId = (c.req.header("x-institution-id") || c.req.header("X-Institution-Id") || "").trim() || undefined;
 
   return {
     actorUserId: sub || undefined,
@@ -98,20 +101,76 @@ export function buildRequestAuditContext(c: Context): RequestAuditContext {
     ip,
     userAgent,
     requestId,
+    institutionId,
   };
 }
 
-export function createSupabaseForRequest(c: Context): { supabase: SupabaseClient; supabaseAdmin: SupabaseClient; ctx: RequestAuditContext } {
-  const ctx = buildRequestAuditContext(c);
+async function resolveActorRole(admin: SupabaseClient, actorUserId?: string, institutionId?: string): Promise<string | undefined> {
+  if (!actorUserId) return undefined;
+  try {
+    // Prefer specific institution if provided
+    if (institutionId) {
+      const { data, error } = await admin
+        .from("user_institutions")
+        .select("role")
+        .eq("user_id", actorUserId)
+        .eq("institution_id", institutionId)
+        .limit(1);
+      if (!error && data && data.length > 0) return data[0].role as string;
+    }
+    // Fallback: newest active membership
+    const { data, error } = await admin
+      .from("user_institutions")
+      .select("role, created_at")
+      .eq("user_id", actorUserId)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (!error && data && data.length > 0) return data[0].role as string;
+  } catch {}
+  return undefined;
+}
+
+function deriveSessionId(authHeader?: string): string {
+  const explicit = undefined;
+  if (explicit) return explicit;
+  const token = authHeader?.replace(/^[Bb]earer\s+/, "").trim();
+  if (token && token.length > 0) {
+    const hash = crypto.createHash("sha256").update(token).digest("hex");
+    return `sess_${hash.slice(0, 32)}`;
+  }
+  return `sess_${uuidv4()}`;
+}
+
+export async function createSupabaseForRequestAsync(c: Context): Promise<{ supabase: SupabaseClient; supabaseAdmin: SupabaseClient; ctx: RequestAuditContext }>{
+  const base = buildRequestAuditContext(c);
   const authHeader = c.req.header("authorization") || c.req.header("Authorization");
 
+  // Build admin first (no role yet) to resolve actor role if needed
+  const tempAdmin = createClient(
+    SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY,
+    {
+      global: {
+        headers: {
+          "x-request-id": base.requestId,
+        },
+      },
+      auth: { persistSession: false, detectSessionInUrl: false },
+    }
+  );
+
+  const resolvedRole = await resolveActorRole(tempAdmin, base.actorUserId, base.institutionId);
+  const actorRole = resolvedRole || base.actorRole || "anon";
+  const sessionId = base.sessionId || deriveSessionId(authHeader);
+
   const commonHeaders: Record<string, string> = {
-    "x-request-id": ctx.requestId,
-    "x-session-id": ctx.sessionId || "",
-    "x-actor-user-id": ctx.actorUserId || "",
-    "x-actor-role": ctx.actorRole || "",
-    "x-real-ip": ctx.ip || "",
-    "user-agent": ctx.userAgent || "",
+    "x-request-id": base.requestId,
+    "x-session-id": sessionId,
+    "x-actor-user-id": base.actorUserId || "",
+    "x-actor-role": actorRole,
+    "x-real-ip": base.ip || "",
+    "user-agent": base.userAgent || "",
+    ...(base.institutionId ? { "x-institution-id": base.institutionId } : {}),
   };
 
   const userSupabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -138,6 +197,11 @@ export function createSupabaseForRequest(c: Context): { supabase: SupabaseClient
     }
   );
 
+  const ctx: RequestAuditContext = {
+    ...base,
+    actorRole,
+    sessionId,
+  };
   return { supabase: userSupabase, supabaseAdmin: adminSupabase, ctx };
 }
 
@@ -148,7 +212,7 @@ export async function auditEventForRequest(
   targetId: string,
   details?: Record<string, any>
 ): Promise<void> {
-  const { supabaseAdmin, ctx } = createSupabaseForRequest(c);
+  const { supabaseAdmin, ctx } = await createSupabaseForRequestAsync(c);
   await supabaseAdmin.from("app.audit_log").insert({
     action,
     target_table: targetTable,

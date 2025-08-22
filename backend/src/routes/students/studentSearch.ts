@@ -1,4 +1,4 @@
-import { createSupabaseForRequest, auditEventForRequest } from "../../supabase";
+import { createSupabaseForRequestAsync, auditEventForRequest } from "../../supabase";
 import { Context } from "hono";
 
 export async function studentSearchHandler(c: Context) {
@@ -10,7 +10,7 @@ export async function studentSearchHandler(c: Context) {
         400
       );
     }
-    const { supabase } = createSupabaseForRequest(c);
+    const { supabase } = await createSupabaseForRequestAsync(c);
     const { data: students, error: studentsError } = await supabase
       .from("users")
       .select(
@@ -56,10 +56,7 @@ export async function studentSearchHandler(c: Context) {
         return { ...student, courses };
       })
     );
-    await auditEventForRequest(c, "search_students", "public.users", "query", {
-      query,
-      count: studentsWithCourses.length,
-    });
+    await auditEventForRequest(c, "search_students", "public.users", "query", { query, count: studentsWithCourses.length });
     return c.json({
       success: true,
       data: studentsWithCourses,

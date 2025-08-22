@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { students, courses, health } from "./routes";
 import { v4 as uuidv4 } from "uuid";
-import { createSupabaseForRequest, auditEventForRequest } from "./supabase";
+import { createSupabaseForRequestAsync, auditEventForRequest } from "./supabase";
 const app = new Hono();
 
 // CORS — include your frontend on 8080
@@ -26,7 +26,7 @@ app.post("/api/testing/upload-avatar", async (c) => {
           "Backend missing SUPABASE_SERVICE_ROLE_KEY. Set it in the backend environment to enable testing uploads without client auth.",
       }, 400);
     }
-    const { supabaseAdmin } = createSupabaseForRequest(c);
+    const { supabaseAdmin } = await createSupabaseForRequestAsync(c);
     const body = await c.req.json<{ userId: string; fileBase64?: string; fileUrl?: string; filename?: string }>();
     const { userId, fileBase64, fileUrl, filename } = body || ({} as any);
 
