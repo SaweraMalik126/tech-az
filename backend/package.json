@@ -1,0 +1,23 @@
+{
+  "name": "teachme-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun run src/index.ts",
+    "build": "bun build src/index.ts --outdir dist",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.8.0",
+    "@supabase/supabase-js": "^2.39.0",
+    "cors": "^2.8.5",
+    "hono": "^4.9.4",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/uuid": "^10.0.0",
+    "bun-types": "latest"
+  }
+}

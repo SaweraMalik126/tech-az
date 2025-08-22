@@ -1,0 +1,205 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* TeachMe.ai Design System - Educational Platform Colors & Styles */
+
+@layer base {
+  :root {
+    /* Core TeachMe.ai Brand Colors */
+    --background: 0 0% 100%;
+    --foreground: 223 47% 12%;
+    
+    /* Brand Primary - Education Blue */
+    --primary: 217 92% 59%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 217 92% 75%;
+    
+    /* AI Assistant Purple */
+    --ai-primary: 258 90% 66%;
+    --ai-secondary: 258 100% 85%;
+    --ai-background: 258 100% 97%;
+    
+    /* Chat Interface */
+    --chat-user: 217 92% 59%;
+    --chat-assistant: 258 90% 66%;
+    --chat-background: 0 0% 98%;
+    
+    /* Educational Green for Success */
+    --success: 142 69% 58%;
+    --success-foreground: 0 0% 100%;
+    
+    /* UI Colors */
+    --card: 0 0% 100%;
+    --card-foreground: 223 47% 12%;
+    
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 223 47% 12%;
+    
+    --muted: 210 40% 94%;
+    --muted-foreground: 215 16% 47%;
+    
+    --accent: 217 92% 97%;
+    --accent-foreground: 217 92% 59%;
+    
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 217 92% 59%;
+    
+    /* Gradients */
+    --gradient-hero: linear-gradient(135deg, hsl(217 92% 59%), hsl(258 90% 66%));
+    --gradient-bg: linear-gradient(180deg, hsl(0 0% 100%), hsl(217 92% 97%));
+    --gradient-chat: linear-gradient(to bottom, hsl(0 0% 100%), hsl(217 92% 98%));
+    
+    /* Educational Theme */
+    --learning-progress: 142 69% 58%;
+    --course-card-shadow: 0 4px 25px -4px hsl(217 92% 59% / 0.15);
+    --chat-shadow: 0 8px 30px -8px hsl(258 90% 66% / 0.2);
+    
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    /* Dark Theme for TeachMe.ai */
+    --background: 223 47% 6%;
+    --foreground: 0 0% 98%;
+    
+    /* Dark Primary Colors */
+    --primary: 217 92% 65%;
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 217 92% 70%;
+    
+    /* Dark AI Colors */
+    --ai-primary: 258 90% 70%;
+    --ai-secondary: 258 90% 80%;
+    --ai-background: 258 90% 8%;
+    
+    /* Dark Chat */
+    --chat-user: 217 92% 65%;
+    --chat-assistant: 258 90% 70%;
+    --chat-background: 223 47% 8%;
+    
+    /* Dark UI */
+    --card: 223 47% 8%;
+    --card-foreground: 0 0% 98%;
+    
+    --secondary: 223 47% 12%;
+    --secondary-foreground: 0 0% 98%;
+    
+    --muted: 223 47% 10%;
+    --muted-foreground: 215 16% 65%;
+    
+    --accent: 223 47% 12%;
+    --accent-foreground: 217 92% 65%;
+    
+    --destructive: 0 84% 65%;
+    --destructive-foreground: 0 0% 100%;
+    
+    --border: 223 47% 15%;
+    --input: 223 47% 12%;
+    --ring: 217 92% 65%;
+    
+    /* Dark Gradients */
+    --gradient-hero: linear-gradient(135deg, hsl(217 92% 65%), hsl(258 90% 70%));
+    --gradient-bg: linear-gradient(180deg, hsl(223 47% 6%), hsl(223 47% 8%));
+    --gradient-chat: linear-gradient(to bottom, hsl(223 47% 8%), hsl(223 47% 6%));
+    
+    /* Dark Educational */
+    --learning-progress: 142 69% 60%;
+    --course-card-shadow: 0 4px 25px -4px hsl(0 0% 0% / 0.4);
+    --chat-shadow: 0 8px 30px -8px hsl(0 0% 0% / 0.3);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+}
+
+@layer components {
+  /* Custom Chat Scrollbar */
+  .chat-scrollbar::-webkit-scrollbar {
+    width: 4px;
+  }
+  
+  .chat-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  
+  .chat-scrollbar::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 2px;
+  }
+  
+  .chat-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+
+  /* AI Gradient Animations */
+  .ai-gradient {
+    background: var(--gradient-hero);
+    background-size: 400% 400%;
+    animation: gradient-shift 8s ease infinite;
+  }
+  
+  @keyframes gradient-shift {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+
+  /* Educational Progress Bar */
+  .progress-bar {
+    background: hsl(var(--learning-progress));
+    box-shadow: 0 2px 8px hsl(var(--learning-progress) / 0.3);
+  }
+
+  /* Chat Message Animations */
+  .message-slide-in {
+    animation: slideInUp 0.3s ease-out;
+  }
+  
+  @keyframes slideInUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  /* Course Card Hover Effects */
+  .course-card {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: var(--course-card-shadow);
+  }
+  
+  .course-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 40px -8px hsl(var(--primary) / 0.25);
+  }
+
+  /* Educational Button Variants */
+  .btn-hero {
+    background: var(--gradient-hero);
+    color: white;
+    border: none;
+    transition: all 0.3s ease;
+  }
+  
+  .btn-hero:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--chat-shadow);
+  }
+}
