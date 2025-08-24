@@ -39,6 +39,12 @@ memberships AS (
   JOIN app_user u ON u.id = r.id
   RETURNING org_id, user_id
 ),
+teacher_user AS (
+  SELECT m.org_id, m.user_id AS teacher_user_id
+  FROM memberships m
+  JOIN app_user u ON u.id = m.user_id
+  WHERE u.email = 'teacher@falcon.edu'
+),
 parent_link AS (
   INSERT INTO parent_link (org_id, parent_user_id, student_user_id, relationship, verified_at)
   SELECT m1.org_id, m1.user_id, m2.user_id, 'guardian', now()
@@ -227,8 +233,9 @@ learning_analytics AS (
 ),
 content_version AS (
   INSERT INTO content_version (org_id, content_type, content_id, version, changes, created_by)
-  SELECT o.id, 'lesson', (SELECT id FROM lesson l WHERE l.org_id=o.id LIMIT 1), 1, '{"initial": true}', (SELECT om.user_id FROM org_membership om JOIN app_user u ON u.id=om.user_id WHERE om.org_id=o.id AND u.email='teacher@falcon.edu' LIMIT 1)
+  SELECT o.id, 'lesson', (SELECT id FROM lesson l WHERE l.org_id=o.id LIMIT 1), 1, '{"initial": true}', tu.teacher_user_id
   FROM org o
+  JOIN teacher_user tu ON tu.org_id = o.id
   RETURNING id
 ),
 content_usage AS (
