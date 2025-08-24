@@ -3,6 +3,26 @@
 -- Ensure uuid generator is available
 create extension if not exists pgcrypto;
 
+-- Ensure app schema and audit table exist
+create schema if not exists app;
+
+create table if not exists app.audit_log (
+  id bigserial primary key,
+  occurred_at timestamptz not null,
+  actor_user_id uuid not null references users(id),
+  actor_role text not null,
+  action text not null check (action in ('insert','update','delete')),
+  target_table text not null,
+  target_id text not null,
+  session_id text not null,
+  ip_address inet not null,
+  user_agent text not null,
+  request_id uuid not null,
+  details jsonb not null default '{}'::jsonb,
+  old_values jsonb,
+  new_values jsonb
+);
+
 -- Derive request context from headers/JWT and database
 create or replace function app.get_request_context()
 returns jsonb
@@ -107,7 +127,11 @@ set search_path = pg_catalog, public, app
 as $$
 declare
   ctx jsonb := app.get_request_context();
-  v_actor uuid := nullif((ctx->>'actor_user_id'), '')::uuid;
+  v_actor uuid := coalesce(
+    nullif((ctx->>'actor_user_id'), '')::uuid,
+    auth.uid(),
+    nullif((nullif(current_setting('request.jwt.claims', true), '')::jsonb)->>'sub','')::uuid
+  );
   v_role text := nullif(ctx->>'actor_role','');
   v_session text := nullif(ctx->>'session_id','');
   v_ip inet := nullif(ctx->>'ip','')::inet;
@@ -119,6 +143,9 @@ declare
   v_new jsonb;
   v_details jsonb := null;
   v_target_table text := concat_ws('.', tg_table_schema, tg_table_name);
+  v_target_user_id uuid;
+  v_role_by_target text;
+  v_role_by_actor text;
 begin
   if (tg_op = 'UPDATE' and new is not distinct from old) then
     return new;
@@ -161,30 +188,63 @@ begin
     v_details := jsonb_build_object('summary','row deleted');
   end if;
 
-  -- Ensure actor and context fields are fully populated without nulls
-  if v_actor is null then
-    v_actor := coalesce(
-      nullif((coalesce(v_new, '{}'::jsonb)->>'user_id'), '')::uuid,
-      nullif((coalesce(v_old, '{}'::jsonb)->>'user_id'), '')::uuid,
-      nullif((coalesce(v_new, '{}'::jsonb)->>'created_by'), '')::uuid,
-      nullif((coalesce(v_old, '{}'::jsonb)->>'created_by'), '')::uuid,
-      nullif((coalesce(v_new, '{}'::jsonb)->>'owner_id'), '')::uuid,
-      nullif((coalesce(v_old, '{}'::jsonb)->>'owner_id'), '')::uuid
-    );
+  -- Determine target user to infer simple role (student/teacher) from the subject of the change
+  v_target_user_id := coalesce(
+    nullif((coalesce(v_new, '{}'::jsonb)->>'user_id'), '')::uuid,
+    nullif((coalesce(v_old, '{}'::jsonb)->>'user_id'), '')::uuid
+  );
+  if (tg_table_name = 'users' or tg_table_name = 'profiles') and v_target_user_id is null then
+    begin
+      v_target_user_id := nullif(v_target_id,'')::uuid;
+    exception when others then
+      v_target_user_id := null;
+    end;
   end if;
 
-  if v_role is null and v_actor is not null then
-    select ui.role into v_role
+  if v_target_user_id is not null then
+    select ui.role into v_role_by_target
+    from user_institutions ui
+    where ui.user_id = v_target_user_id
+    order by ui.created_at desc
+    limit 1;
+  end if;
+
+  if v_actor is not null then
+    select ui.role into v_role_by_actor
     from user_institutions ui
     where ui.user_id = v_actor
     order by ui.created_at desc
     limit 1;
   end if;
 
-  v_ua := coalesce(v_ua, v_role);
-  v_session := coalesce(v_session, (v_actor::text));
-  v_ip := coalesce(v_ip, inet_client_addr());
-  v_request := coalesce(v_request, v_actor);
+  -- Actor role/user_agent follow the simple rule based on the target subject if available, else actor
+  v_role := coalesce(v_role_by_target, v_role_by_actor, v_role);
+  v_ua := v_role;
+
+  -- Ensure remaining context fields are present and correct
+  if v_session is null then
+    v_session := coalesce(
+      nullif(current_setting('request.header.x-session-id', true), ''),
+      nullif((nullif(current_setting('request.jwt.claims', true), '')::jsonb)->>'session_id',''),
+      nullif((nullif(current_setting('request.jwt.claims', true), '')::jsonb)->>'sid',''),
+      nullif((nullif(current_setting('request.jwt.claims', true), '')::jsonb)->>'jti',''),
+      coalesce(v_actor::text, v_target_user_id::text)
+    );
+  end if;
+
+  if v_ip is null then
+    v_ip := coalesce(
+      nullif(current_setting('request.header.x-real-ip', true), '')::inet,
+      nullif(current_setting('request.header.cf-connecting-ip', true), '')::inet,
+      nullif(current_setting('request.header.x-client-ip', true), '')::inet,
+      nullif(split_part(coalesce(current_setting('request.header.x-forwarded-for', true), ''), ',', 1),'')::inet,
+      inet_client_addr()
+    );
+  end if;
+
+  if v_request is null then
+    v_request := v_actor; -- request_id equals user_id as requested
+  end if;
 
   insert into app.audit_log (
     occurred_at, actor_user_id, actor_role, action, target_table, target_id,
@@ -201,10 +261,8 @@ begin
 end;
 $$;
 
--- Remove defaults so that values must be supplied from context and logic
-alter table app.audit_log
-  alter column request_id   drop default,
-  alter column actor_role   drop default,
-  alter column session_id   drop default,
-  alter column ip_address   drop default,
-  alter column user_agent   drop default;
+-- Attach audit trigger to key tables
+DROP TRIGGER IF EXISTS trg_audit_users_row ON users;
+CREATE TRIGGER trg_audit_users_row
+  AFTER INSERT OR UPDATE OR DELETE ON users
+  FOR EACH ROW EXECUTE FUNCTION app.audit_row_changes();
