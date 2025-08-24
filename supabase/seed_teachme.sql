@@ -82,7 +82,7 @@ section AS (
          now()
   FROM course c
   JOIN term t ON t.org_id = c.org_id
-  RETURNING id, org_id
+  RETURNING id, org_id, course_id
 ),
 teacher_assignment AS (
   INSERT INTO teacher_assignment (org_id, section_id, teacher_user_id, role)
@@ -107,7 +107,7 @@ assets AS (
 module AS (
   INSERT INTO module (org_id, section_id, title, sort_order)
   SELECT s.org_id, s.id, 'Mechanics', 1 FROM section s
-  RETURNING id, org_id
+  RETURNING id, org_id, section_id
 ),
 lesson AS (
   INSERT INTO lesson (org_id, module_id, section_id, title, content_rich, whiteboard_json, objectives, duration_minutes, difficulty_level, prerequisites, version, is_published, published_at, reviewed_by, reviewed_at)
