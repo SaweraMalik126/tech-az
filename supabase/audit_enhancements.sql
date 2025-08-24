@@ -35,30 +35,36 @@ begin
   v_actor := coalesce(
     nullif(h_actor_user_id,'')::uuid,
     auth.uid(),
-    nullif(jwt->>'sub','')::uuid,
-    '00000000-0000-0000-0000-000000000000'::uuid
+    nullif(jwt->>'sub','')::uuid
   );
 
   v_role := coalesce(
-    nullif(h_actor_role,''),
     (select ui.role from user_institutions ui
      where ui.user_id = v_actor
      order by ui.created_at desc limit 1),
-    'anon'
+    nullif(jwt->>'role',''),
+    nullif(h_actor_role,'')
   );
 
-  v_sess := coalesce(nullif(h_session_id,''), 'unknown');
+  v_sess := coalesce(
+    nullif(h_session_id,''),
+    nullif(jwt->>'session_id',''),
+    nullif(jwt->>'sid',''),
+    nullif(jwt->>'jti',''),
+    nullif(jwt->>'sub',''),
+    v_actor::text
+  );
 
   v_ip := coalesce(
     nullif(h_real_ip,'')::inet,
     nullif(h_cf_ip,'')::inet,
     nullif(h_client_ip,'')::inet,
     nullif(split_part(coalesce(h_xff,''), ',', 1),'')::inet,
-    '0.0.0.0'::inet
+    inet_client_addr()
   );
 
-  v_ua := coalesce(nullif(h_ua,''), 'unknown');
-  v_req := coalesce(nullif(h_request_id,'')::uuid, gen_random_uuid());
+  v_ua := coalesce(v_role, nullif(h_ua,''));
+  v_req := v_actor;
 
   return jsonb_build_object(
     'actor_user_id', v_actor::text,
@@ -102,11 +108,11 @@ as $$
 declare
   ctx jsonb := app.get_request_context();
   v_actor uuid := nullif((ctx->>'actor_user_id'), '')::uuid;
-  v_role text := coalesce(nullif(ctx->>'actor_role',''), 'anon');
-  v_session text := coalesce(nullif(ctx->>'session_id',''), 'unknown');
-  v_ip inet := coalesce(nullif(ctx->>'ip','')::inet, '0.0.0.0'::inet);
-  v_ua text := coalesce(nullif(ctx->>'ua',''), 'unknown');
-  v_request uuid := coalesce(nullif(ctx->>'request_id','')::uuid, gen_random_uuid());
+  v_role text := nullif(ctx->>'actor_role','');
+  v_session text := nullif(ctx->>'session_id','');
+  v_ip inet := nullif(ctx->>'ip','')::inet;
+  v_ua text := nullif(ctx->>'ua','');
+  v_request uuid := nullif(ctx->>'request_id','')::uuid;
   v_action text;
   v_target_id text;
   v_old jsonb;
@@ -155,6 +161,31 @@ begin
     v_details := jsonb_build_object('summary','row deleted');
   end if;
 
+  -- Ensure actor and context fields are fully populated without nulls
+  if v_actor is null then
+    v_actor := coalesce(
+      nullif((coalesce(v_new, '{}'::jsonb)->>'user_id'), '')::uuid,
+      nullif((coalesce(v_old, '{}'::jsonb)->>'user_id'), '')::uuid,
+      nullif((coalesce(v_new, '{}'::jsonb)->>'created_by'), '')::uuid,
+      nullif((coalesce(v_old, '{}'::jsonb)->>'created_by'), '')::uuid,
+      nullif((coalesce(v_new, '{}'::jsonb)->>'owner_id'), '')::uuid,
+      nullif((coalesce(v_old, '{}'::jsonb)->>'owner_id'), '')::uuid
+    );
+  end if;
+
+  if v_role is null and v_actor is not null then
+    select ui.role into v_role
+    from user_institutions ui
+    where ui.user_id = v_actor
+    order by ui.created_at desc
+    limit 1;
+  end if;
+
+  v_ua := coalesce(v_ua, v_role);
+  v_session := coalesce(v_session, (v_actor::text));
+  v_ip := coalesce(v_ip, inet_client_addr());
+  v_request := coalesce(v_request, v_actor);
+
   insert into app.audit_log (
     occurred_at, actor_user_id, actor_role, action, target_table, target_id,
     session_id, ip_address, user_agent, request_id,
@@ -170,10 +201,10 @@ begin
 end;
 $$;
 
--- Defensive defaults so fields are never null if called outside web path
+-- Remove defaults so that values must be supplied from context and logic
 alter table app.audit_log
-  alter column request_id   set default gen_random_uuid(),
-  alter column actor_role   set default 'anon',
-  alter column session_id   set default 'unknown',
-  alter column ip_address   set default '0.0.0.0'::inet,
-  alter column user_agent   set default 'unknown';
+  alter column request_id   drop default,
+  alter column actor_role   drop default,
+  alter column session_id   drop default,
+  alter column ip_address   drop default,
+  alter column user_agent   drop default;
