@@ -3,6 +3,26 @@
 -- Ensure uuid generator is available
 create extension if not exists pgcrypto;
 
+-- Ensure app schema and audit table exist
+create schema if not exists app;
+
+create table if not exists app.audit_log (
+  id bigserial primary key,
+  occurred_at timestamptz not null,
+  actor_user_id uuid not null references users(id),
+  actor_role text not null,
+  action text not null check (action in ('insert','update','delete')),
+  target_table text not null,
+  target_id text not null,
+  session_id text not null,
+  ip_address inet not null,
+  user_agent text not null,
+  request_id uuid not null,
+  details jsonb not null default '{}'::jsonb,
+  old_values jsonb,
+  new_values jsonb
+);
+
 -- Derive request context from headers/JWT and database
 create or replace function app.get_request_context()
 returns jsonb
@@ -35,30 +55,36 @@ begin
   v_actor := coalesce(
     nullif(h_actor_user_id,'')::uuid,
     auth.uid(),
-    nullif(jwt->>'sub','')::uuid,
-    '00000000-0000-0000-0000-000000000000'::uuid
+    nullif(jwt->>'sub','')::uuid
   );
 
   v_role := coalesce(
-    nullif(h_actor_role,''),
     (select ui.role from user_institutions ui
      where ui.user_id = v_actor
      order by ui.created_at desc limit 1),
-    'anon'
+    nullif(jwt->>'role',''),
+    nullif(h_actor_role,'')
   );
 
-  v_sess := coalesce(nullif(h_session_id,''), 'unknown');
+  v_sess := coalesce(
+    nullif(h_session_id,''),
+    nullif(jwt->>'session_id',''),
+    nullif(jwt->>'sid',''),
+    nullif(jwt->>'jti',''),
+    nullif(jwt->>'sub',''),
+    v_actor::text
+  );
 
   v_ip := coalesce(
     nullif(h_real_ip,'')::inet,
     nullif(h_cf_ip,'')::inet,
     nullif(h_client_ip,'')::inet,
     nullif(split_part(coalesce(h_xff,''), ',', 1),'')::inet,
-    '0.0.0.0'::inet
+    inet_client_addr()
   );
 
-  v_ua := coalesce(nullif(h_ua,''), 'unknown');
-  v_req := coalesce(nullif(h_request_id,'')::uuid, gen_random_uuid());
+  v_ua := coalesce(v_role, nullif(h_ua,''));
+  v_req := v_actor;
 
   return jsonb_build_object(
     'actor_user_id', v_actor::text,
@@ -101,18 +127,25 @@ set search_path = pg_catalog, public, app
 as $$
 declare
   ctx jsonb := app.get_request_context();
-  v_actor uuid := nullif((ctx->>'actor_user_id'), '')::uuid;
-  v_role text := coalesce(nullif(ctx->>'actor_role',''), 'anon');
-  v_session text := coalesce(nullif(ctx->>'session_id',''), 'unknown');
-  v_ip inet := coalesce(nullif(ctx->>'ip','')::inet, '0.0.0.0'::inet);
-  v_ua text := coalesce(nullif(ctx->>'ua',''), 'unknown');
-  v_request uuid := coalesce(nullif(ctx->>'request_id','')::uuid, gen_random_uuid());
+  v_actor uuid := coalesce(
+    nullif((ctx->>'actor_user_id'), '')::uuid,
+    auth.uid(),
+    nullif((nullif(current_setting('request.jwt.claims', true), '')::jsonb)->>'sub','')::uuid
+  );
+  v_role text := nullif(ctx->>'actor_role','');
+  v_session text := nullif(ctx->>'session_id','');
+  v_ip inet := nullif(ctx->>'ip','')::inet;
+  v_ua text := nullif(ctx->>'ua','');
+  v_request uuid := nullif(ctx->>'request_id','')::uuid;
   v_action text;
   v_target_id text;
   v_old jsonb;
   v_new jsonb;
   v_details jsonb := null;
   v_target_table text := concat_ws('.', tg_table_schema, tg_table_name);
+  v_target_user_id uuid;
+  v_role_by_target text;
+  v_role_by_actor text;
 begin
   if (tg_op = 'UPDATE' and new is not distinct from old) then
     return new;
@@ -155,6 +188,64 @@ begin
     v_details := jsonb_build_object('summary','row deleted');
   end if;
 
+  -- Determine target user to infer simple role (student/teacher) from the subject of the change
+  v_target_user_id := coalesce(
+    nullif((coalesce(v_new, '{}'::jsonb)->>'user_id'), '')::uuid,
+    nullif((coalesce(v_old, '{}'::jsonb)->>'user_id'), '')::uuid
+  );
+  if (tg_table_name = 'users' or tg_table_name = 'profiles') and v_target_user_id is null then
+    begin
+      v_target_user_id := nullif(v_target_id,'')::uuid;
+    exception when others then
+      v_target_user_id := null;
+    end;
+  end if;
+
+  if v_target_user_id is not null then
+    select ui.role into v_role_by_target
+    from user_institutions ui
+    where ui.user_id = v_target_user_id
+    order by ui.created_at desc
+    limit 1;
+  end if;
+
+  if v_actor is not null then
+    select ui.role into v_role_by_actor
+    from user_institutions ui
+    where ui.user_id = v_actor
+    order by ui.created_at desc
+    limit 1;
+  end if;
+
+  -- Actor role/user_agent follow the simple rule based on the target subject if available, else actor
+  v_role := coalesce(v_role_by_target, v_role_by_actor, v_role);
+  v_ua := v_role;
+
+  -- Ensure remaining context fields are present and correct
+  if v_session is null then
+    v_session := coalesce(
+      nullif(current_setting('request.header.x-session-id', true), ''),
+      nullif((nullif(current_setting('request.jwt.claims', true), '')::jsonb)->>'session_id',''),
+      nullif((nullif(current_setting('request.jwt.claims', true), '')::jsonb)->>'sid',''),
+      nullif((nullif(current_setting('request.jwt.claims', true), '')::jsonb)->>'jti',''),
+      coalesce(v_actor::text, v_target_user_id::text)
+    );
+  end if;
+
+  if v_ip is null then
+    v_ip := coalesce(
+      nullif(current_setting('request.header.x-real-ip', true), '')::inet,
+      nullif(current_setting('request.header.cf-connecting-ip', true), '')::inet,
+      nullif(current_setting('request.header.x-client-ip', true), '')::inet,
+      nullif(split_part(coalesce(current_setting('request.header.x-forwarded-for', true), ''), ',', 1),'')::inet,
+      inet_client_addr()
+    );
+  end if;
+
+  if v_request is null then
+    v_request := v_actor; -- request_id equals user_id as requested
+  end if;
+
   insert into app.audit_log (
     occurred_at, actor_user_id, actor_role, action, target_table, target_id,
     session_id, ip_address, user_agent, request_id,
@@ -170,10 +261,8 @@ begin
 end;
 $$;
 
--- Defensive defaults so fields are never null if called outside web path
-alter table app.audit_log
-  alter column request_id   set default gen_random_uuid(),
-  alter column actor_role   set default 'anon',
-  alter column session_id   set default 'unknown',
-  alter column ip_address   set default '0.0.0.0'::inet,
-  alter column user_agent   set default 'unknown';
+-- Attach audit trigger to key tables
+DROP TRIGGER IF EXISTS trg_audit_users_row ON users;
+CREATE TRIGGER trg_audit_users_row
+  AFTER INSERT OR UPDATE OR DELETE ON users
+  FOR EACH ROW EXECUTE FUNCTION app.audit_row_changes();
