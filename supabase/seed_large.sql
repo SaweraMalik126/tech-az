@@ -204,7 +204,7 @@ BEGIN
                     CASE WHEN i % 2 = 0 THEN 'live' ELSE 'async' END::session_mode);
           END LOOP;
         END LOOP;
-      END FOR;
+      END LOOP;
     END LOOP;
 
     -- Users for org: create admins, teachers, students, parents
