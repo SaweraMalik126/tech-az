@@ -343,11 +343,11 @@ BEGIN
       SELECT id INTO m2 FROM module WHERE org_id=r_sec.org_id AND section_id=r_sec.section_id AND sort_order=2;
     END IF;
 
-    -- Lessons
-    INSERT INTO lesson (org_id, module_id, title, content_rich) VALUES (r_sec.org_id, m1, 'Lesson 1.1', 'Intro content') ON CONFLICT DO NOTHING;
-    INSERT INTO lesson (org_id, module_id, title, content_rich) VALUES (r_sec.org_id, m1, 'Lesson 1.2', 'More content') ON CONFLICT DO NOTHING;
-    INSERT INTO lesson (org_id, module_id, title, content_rich) VALUES (r_sec.org_id, m2, 'Lesson 2.1', 'Advanced content') ON CONFLICT DO NOTHING;
-    INSERT INTO lesson (org_id, module_id, title, content_rich) VALUES (r_sec.org_id, m2, 'Lesson 2.2', 'Wrap-up') ON CONFLICT DO NOTHING;
+    -- Lessons (include section_id to satisfy NOT NULL in your schema)
+    INSERT INTO lesson (org_id, module_id, section_id, title, content_rich) VALUES (r_sec.org_id, m1, r_sec.section_id, 'Lesson 1.1', 'Intro content') ON CONFLICT DO NOTHING;
+    INSERT INTO lesson (org_id, module_id, section_id, title, content_rich) VALUES (r_sec.org_id, m1, r_sec.section_id, 'Lesson 1.2', 'More content') ON CONFLICT DO NOTHING;
+    INSERT INTO lesson (org_id, module_id, section_id, title, content_rich) VALUES (r_sec.org_id, m2, r_sec.section_id, 'Lesson 2.1', 'Advanced content') ON CONFLICT DO NOTHING;
+    INSERT INTO lesson (org_id, module_id, section_id, title, content_rich) VALUES (r_sec.org_id, m2, r_sec.section_id, 'Lesson 2.2', 'Wrap-up') ON CONFLICT DO NOTHING;
 
     INSERT INTO tmp_lessons
     SELECT r_sec.org_id, id, module_id FROM lesson WHERE org_id=r_sec.org_id AND module_id IN (m1,m2);
