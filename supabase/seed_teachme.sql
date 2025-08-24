@@ -227,7 +227,7 @@ learning_analytics AS (
 ),
 content_version AS (
   INSERT INTO content_version (org_id, content_type, content_id, version, changes, created_by)
-  SELECT o.id, 'lesson', (SELECT id FROM lesson l WHERE l.org_id=o.id LIMIT 1), 1, '{"initial": true}', (SELECT user_id FROM memberships m JOIN app_user u ON u.id=m.user_id WHERE m.org_id=o.id AND u.email='teacher@falcon.edu')
+  SELECT o.id, 'lesson', (SELECT id FROM lesson l WHERE l.org_id=o.id LIMIT 1), 1, '{"initial": true}', (SELECT om.user_id FROM org_membership om JOIN app_user u ON u.id=om.user_id WHERE om.org_id=o.id AND u.email='teacher@falcon.edu' LIMIT 1)
   FROM org o
   RETURNING id
 ),
